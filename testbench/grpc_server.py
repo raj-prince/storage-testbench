@@ -573,10 +573,7 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
         bucket = self.db.get_bucket(request.destination.bucket, context).metadata
         metadata = storage_pb2.Object()
         metadata.MergeFrom(request.destination)
-        (
-            blob,
-            _,
-        ) = gcs.object.Object.init(
+        (blob, _,) = gcs.object.Object.init(
             request, metadata, composed_media, bucket, True, context
         )
         self.db.insert_object(
@@ -833,7 +830,6 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
         returnable = (
             broken_stream_after_bytes if broken_stream_after_bytes else sys.maxsize
         )
-        bytes_yielded = 0
 
         # We don't want to have a thread blocking on request_iterator, so we
         # have to handle results in batches rather than concurrently. This
@@ -853,6 +849,7 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
             for request in request_iterator:
                 yield from responses_for_range_batch(request.read_ranges)
 
+        bytes_yielded = 0
         for chunk, range_end, read_range in read_results():
             count = len(chunk)
             excess = count - returnable

@@ -1129,10 +1129,6 @@ class TestTestbenchRetryGrpc(unittest.TestCase):
                     resource=storage_pb2.Object(
                         name="object-name-stall",
                         bucket="projects/_/buckets/bucket-name",
-
-
-
-                        
                     )
                 )
             ),

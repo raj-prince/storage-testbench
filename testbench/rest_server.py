@@ -175,9 +175,7 @@ def start_grpc():
         port = flask.request.args.get("port", "0")
         echo_metadata = flask.request.args.get("echo-metadata", False)
         grpc_port, grpc_service = testbench.grpc_server.run(
-            int(port),
-            db,
-            echo_metadata=echo_metadata,
+            int(port), db, echo_metadata=echo_metadata
         )
     return str(grpc_port)
 
@@ -1249,10 +1247,10 @@ def delete_resumable_upload(bucket_name):
 # === SERVER === #
 
 # Define the WSGI application to handle HMAC key and service account requests
-(PROJECTS_HANDLER_PATH, projects_app) = projects_rest_server.get_projects_app(db)
+PROJECTS_HANDLER_PATH, projects_app = projects_rest_server.get_projects_app(db)
 
 # Define the WSGI application to handle IAM requests
-(IAM_HANDLER_PATH, iam_app) = iam_rest_server.get_iam_app()
+IAM_HANDLER_PATH, iam_app = iam_rest_server.get_iam_app()
 
 server = flask.Flask(__name__)
 server.debug = False
