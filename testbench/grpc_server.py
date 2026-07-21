@@ -20,6 +20,7 @@ import itertools
 import json
 import re
 import sys
+import time
 import types
 import uuid
 from collections.abc import Iterable
@@ -607,6 +608,9 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
         # Check retry test broken-stream instructions.
         test_id = testbench.common.get_retry_test_id_from_context(context)
         broken_stream_after_bytes = 0
+        stall_time = 0
+        stall_after_bytes = 0
+        stall_applied = False
         method = "storage.objects.get"
         if test_id and self.db.has_instructions_retry_test(
             test_id, method, transport="GRPC"
@@ -615,12 +619,34 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
             broken_stream_after_bytes = testbench.common.get_broken_stream_after_bytes(
                 next_instruction
             )
+            retry_stall_after_bytes_matches = (
+                testbench.common.retry_stall_after_bytes.match(next_instruction)
+            )
+            if retry_stall_after_bytes_matches:
+                items = list(retry_stall_after_bytes_matches.groups())
+                stall_time = int(items[0])
+                stall_after_bytes = int(items[1]) * 1024
 
+        bytes_yielded = 0
         while start <= read_end:
             end = min(start + size, read_end)
+            chunk_len = end - start
+
+            # Apply stall once when the configured byte threshold is reached.
+            if (
+                stall_time > 0
+                and not stall_applied
+                and bytes_yielded < stall_after_bytes
+                and (bytes_yielded + chunk_len) >= stall_after_bytes
+            ):
+                self.db.dequeue_next_instruction(test_id, method)
+                time.sleep(stall_time)
+                stall_applied = True
+
             # Handle retry test broken-stream failures if applicable.
             if broken_stream_after_bytes and end >= broken_stream_after_bytes:
                 chunk = blob.media[start:broken_stream_after_bytes]
+                bytes_yielded += len(chunk)
                 yield storage_pb2.ReadObjectResponse(
                     checksummed_data={
                         "content": chunk,
@@ -636,6 +662,7 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
                     "Injected 'broken stream' fault",
                 )
             chunk = blob.media[start:end]
+            bytes_yielded += len(chunk)
             yield storage_pb2.ReadObjectResponse(
                 checksummed_data={
                     "content": chunk,
@@ -670,6 +697,9 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
         # Check retry test broken-stream instructions.
         test_id = testbench.common.get_retry_test_id_from_context(context)
         broken_stream_after_bytes = 0
+        stall_time = 0
+        stall_after_bytes = 0
+        stall_applied = False
         method = "storage.objects.get"
         if test_id and self.db.has_instructions_retry_test(
             test_id, method, transport="GRPC"
@@ -678,6 +708,13 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
             broken_stream_after_bytes = testbench.common.get_broken_stream_after_bytes(
                 next_instruction
             )
+            retry_stall_after_bytes_matches = (
+                testbench.common.retry_stall_after_bytes.match(next_instruction)
+            )
+            if retry_stall_after_bytes_matches:
+                items = list(retry_stall_after_bytes_matches.groups())
+                stall_time = int(items[0])
+                stall_after_bytes = int(items[1]) * 1024
         return_redirect_token = (
             testbench.common.get_return_read_handle_and_redirect_token(self.db, context)
         )
@@ -763,6 +800,7 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
         returnable = (
             broken_stream_after_bytes if broken_stream_after_bytes else sys.maxsize
         )
+        bytes_yielded = 0
 
         # We don't want to have a thread blocking on request_iterator, so we
         # have to handle results in batches rather than concurrently. This
@@ -789,6 +827,19 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
                 chunk = chunk[:returnable]
                 range_end = False
                 read_range["read_length"] -= excess
+
+            # Apply stall once when the configured byte threshold is reached.
+            if (
+                stall_time > 0
+                and not stall_applied
+                and bytes_yielded < stall_after_bytes
+                and (bytes_yielded + len(chunk)) >= stall_after_bytes
+            ):
+                self.db.dequeue_next_instruction(test_id, method)
+                time.sleep(stall_time)
+                stall_applied = True
+
+            bytes_yielded += len(chunk)
             returnable -= count
             yield response(
                 storage_pb2.BidiReadObjectResponse(
