@@ -43,7 +43,15 @@ from google.iam.v1 import iam_policy_pb2
 from google.storage.control.v2 import storage_control_pb2, storage_control_pb2_grpc
 from google.storage.v2 import storage_pb2, storage_pb2_grpc
 
-_GRPC_SERVER_THREAD_COUNT = 2
+_GRPC_SERVER_THREAD_COUNT = 8
+
+
+def _should_stall_after_bytes(bytes_yielded, chunk_len, stall_after_bytes):
+    if chunk_len <= 0:
+        return False
+    if stall_after_bytes == 0:
+        return bytes_yielded == 0
+    return bytes_yielded < stall_after_bytes <= bytes_yielded + chunk_len
 
 
 def _trimmed_content(content):
@@ -633,14 +641,24 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
             chunk_len = end - start
 
             # Apply stall once when the configured byte threshold is reached.
+            should_stall_now = _should_stall_after_bytes(
+                bytes_yielded, chunk_len, stall_after_bytes
+            )
             if (
                 stall_time > 0
                 and not stall_applied
-                and bytes_yielded < stall_after_bytes
-                and (bytes_yielded + chunk_len) >= stall_after_bytes
+                and should_stall_now
             ):
-                self.db.dequeue_next_instruction(test_id, method)
-                time.sleep(stall_time)
+                should_stall = True
+                dequeue_result = None
+                if test_id:
+                    dequeue_result = self.db.dequeue_next_instruction(test_id, method)
+                    should_stall = dequeue_result is not None
+                if should_stall:
+                    print(
+                        f"ReadObject sleeping for {stall_time}s after {stall_after_bytes} bytes"
+                    )
+                    time.sleep(stall_time)
                 stall_applied = True
 
             # Handle retry test broken-stream failures if applicable.
@@ -829,14 +847,21 @@ class StorageServicer(storage_pb2_grpc.StorageServicer):
                 read_range["read_length"] -= excess
 
             # Apply stall once when the configured byte threshold is reached.
+            should_stall_now = _should_stall_after_bytes(
+                bytes_yielded, len(chunk), stall_after_bytes
+            )
             if (
                 stall_time > 0
                 and not stall_applied
-                and bytes_yielded < stall_after_bytes
-                and (bytes_yielded + len(chunk)) >= stall_after_bytes
+                and should_stall_now
             ):
-                self.db.dequeue_next_instruction(test_id, method)
-                time.sleep(stall_time)
+                should_stall = True
+                dequeue_result = None
+                if test_id:
+                    dequeue_result = self.db.dequeue_next_instruction(test_id, method)
+                    should_stall = dequeue_result is not None
+                if should_stall:
+                    time.sleep(stall_time)
                 stall_applied = True
 
             bytes_yielded += len(chunk)
@@ -1325,9 +1350,11 @@ class StorageControlServicer(storage_control_pb2_grpc.StorageControlServicer):
         return layout
 
 
-def run(port, database, echo_metadata=False):
+def run(port, database, echo_metadata=False, thread_count=None):
     server = grpc.server(
-        futures.ThreadPoolExecutor(max_workers=_GRPC_SERVER_THREAD_COUNT)
+        futures.ThreadPoolExecutor(
+            max_workers=thread_count if thread_count is not None else _GRPC_SERVER_THREAD_COUNT
+        )
     )
     storage_pb2_grpc.add_StorageServicer_to_server(
         StorageServicer(database, echo_metadata), server

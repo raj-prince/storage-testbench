@@ -995,9 +995,14 @@ def handle_stall_uploads_after_bytes(
     e.g. We are uploading 120K of data then, stall-2s-after-100K will stall the request.
     """
     if len(upload.media) <= after_bytes and len(upload.media) + len(data) > after_bytes:
+        should_stall = True
         if test_id:
-            database.dequeue_next_instruction(test_id, "storage.objects.insert")
-        time.sleep(stall_time)
+            should_stall = (
+                database.dequeue_next_instruction(test_id, "storage.objects.insert")
+                is not None
+            )
+        if should_stall:
+            time.sleep(stall_time)
 
 
 def handle_retry_uploads_error_after_bytes(
