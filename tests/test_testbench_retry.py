@@ -1075,7 +1075,9 @@ class TestTestbenchRetryGrpc(unittest.TestCase):
             "/retry_test",
             data=json.dumps(
                 {
-                    "instructions": {"storage.objects.get": ["stall-for-1s-after-128K"]},
+                    "instructions": {
+                        "storage.objects.get": ["stall-for-1s-after-128K"]
+                    },
                     "transport": "GRPC",
                 },
             ),
@@ -1125,7 +1127,8 @@ class TestTestbenchRetryGrpc(unittest.TestCase):
             storage_pb2.StartResumableWriteRequest(
                 write_object_spec=storage_pb2.WriteObjectSpec(
                     resource=storage_pb2.Object(
-                        name="object-name-stall", bucket="projects/_/buckets/bucket-name"
+                        name="object-name-stall",
+                        bucket="projects/_/buckets/bucket-name",
                     )
                 )
             ),
@@ -1151,7 +1154,9 @@ class TestTestbenchRetryGrpc(unittest.TestCase):
         r2 = storage_pb2.WriteObjectRequest(
             upload_id=start.upload_id,
             write_offset=len(content),
-            checksummed_data=storage_pb2.ChecksummedData(content=b"", crc32c=crc32c.crc32c(b"")),
+            checksummed_data=storage_pb2.ChecksummedData(
+                content=b"", crc32c=crc32c.crc32c(b"")
+            ),
             finish_write=True,
         )
         start_time = time.perf_counter()
@@ -1221,7 +1226,9 @@ class TestTestbenchRetryGrpc(unittest.TestCase):
             "/retry_test",
             data=json.dumps(
                 {
-                    "instructions": {"storage.objects.get": ["stall-for-1s-after-256K"]},
+                    "instructions": {
+                        "storage.objects.get": ["stall-for-1s-after-256K"]
+                    },
                     "transport": "GRPC",
                 },
             ),
